@@ -1,0 +1,34 @@
+name: primordia
+description: AI agent economic settlement - clearing-grade receipts, netting, and credit
+version: 0.1.0
+repository: https://github.com/oerc-s/primordia
+homepage: https://clearing.kaledge.app
+license: MIT
+keywords:
+  - finance
+  - settlement
+  - clearing
+  - ai-agents
+  - metering
+  - credit
+tools:
+  - name: verify_receipt
+    description: Verify MSR/IAN/FC signature (FREE)
+  - name: verify_seal
+    description: Verify conformance seal (FREE)
+  - name: emit_meter
+    description: Emit compute/energy meter (FREE)
+  - name: net_receipts
+    description: Net receipts into signed IAN (5 bps)
+  - name: open_credit_line
+    description: Open inter-agent credit line (50 bps)
+  - name: get_balance_sheet
+    description: Get audit-grade balance sheet ($5)
+runtime:
+  type: node
+  command: npx
+  args:
+    - -y
+    - "@primordia1/mcp-server"
+  env:
+    PRIMORDIA_KERNEL_URL: https://clearing.kaledge.app
