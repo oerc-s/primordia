@@ -1654,15 +1654,17 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   res.status(500).json({ error: 'Internal server error', message: err.message });
 });
 
-app.use((req: Request, res: Response) => {
-  res.status(404).json({ error: 'Endpoint not found' });
-});
-
 // ============================================================================
 // Register ALR Endpoints (Enterprise)
 registerALREndpoints(app, KERNEL_PRIVATE_KEY, KERNEL_PUBLIC_KEY);
 
+// 404 Handler (must be last)
+app.use((req: Request, res: Response) => {
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
 // Start Server
+
 // ============================================================================
 
 app.listen(PORT, () => {
