@@ -1,0 +1,33 @@
+{
+  "name": "@primordia/mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server exposing Primordia clearing tools",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "primordia-clearing": "./build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "primordia",
+    "clearing",
+    "ai-agents"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

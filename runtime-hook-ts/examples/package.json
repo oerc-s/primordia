@@ -1,0 +1,19 @@
+{
+  "name": "@primordia/runtime-hook-examples",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "shadow": "tsx shadow-mode.ts",
+    "paid": "tsx paid-mode.ts",
+    "manual": "tsx manual-metering.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "@primordia/runtime-hook": "file:..",
+    "openai": "^4.77.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "version": "0.1.0",
+  "frozen": true,
+  "frozen_at_ms": 1735059240000,
+
+  "canonical_json": [
+    {"id": "CJ-001", "input": {"b": 2, "a": 1}, "expected": "{\"a\":1,\"b\":2}"},
+    {"id": "CJ-002", "input": [3, 2, 1], "expected": "[3,2,1]"},
+    {"id": "CJ-003", "input": null, "expected": "null"},
+    {"id": "CJ-004", "input": true, "expected": "true"},
+    {"id": "CJ-005", "input": false, "expected": "false"},
+    {"id": "CJ-006", "input": 123, "expected": "123"},
+    {"id": "CJ-007", "input": "string", "expected": "\"string\""},
+    {"id": "CJ-008", "input": {"z": {"b": 2, "a": 1}, "a": 0}, "expected": "{\"a\":0,\"z\":{\"a\":1,\"b\":2}}"}
+  ],
+
+  "msr": {
+    "valid": {
+      "id": "MSR-001",
+      "msr_version": "0.1",
+      "payer_agent_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payee_agent_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "resource_type": "compute",
+      "units": 1000,
+      "unit_type": "gpu_seconds",
+      "price_usd_micros": 50000000,
+      "timestamp_ms": 1703289600000,
+      "nonce": "ffffffffffffffffffffffffffffffff",
+      "scope_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "request_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "response_hash": "2222222222222222222222222222222222222222222222222222222222222222",
+      "prev_receipt_hash": null
+    }
+  },
+
+  "netting": [
+    {
+      "id": "NET-001",
+      "inputs": [
+        {"payer": "A", "payee": "B", "amount": 100},
+        {"payer": "B", "payee": "A", "amount": 30}
+      ],
+      "expected": [
+        {"from": "A", "to": "B", "amount": 70}
+      ]
+    },
+    {
+      "id": "NET-002",
+      "inputs": [
+        {"payer": "A", "payee": "B", "amount": 50},
+        {"payer": "B", "payee": "C", "amount": 50},
+        {"payer": "C", "payee": "A", "amount": 50}
+      ],
+      "expected": []
+    },
+    {
+      "id": "NET-003",
+      "inputs": [
+        {"payer": "A", "payee": "B", "amount": 100},
+        {"payer": "A", "payee": "C", "amount": 100},
+        {"payer": "B", "payee": "A", "amount": 50}
+      ],
+      "expected": [
+        {"from": "A", "to": "B", "amount": 50},
+        {"from": "A", "to": "C", "amount": 100}
+      ]
+    }
+  ],
+
+  "inclusion_proofs": [
+    {
+      "id": "PROOF-001",
+      "leaves": ["L0", "L1"],
+      "position": 0,
+      "description": "2-leaf tree, prove L0"
+    },
+    {
+      "id": "PROOF-002",
+      "leaves": ["L0", "L1", "L2", "L3"],
+      "position": 2,
+      "description": "4-leaf tree, prove L2"
+    }
+  ],
+
+  "state_transitions": [
+    {"id": "ST-001", "from": "RECEIPT_CREATED", "trigger": "INDEX_SUBMIT", "to": "INDEXED", "valid": true},
+    {"id": "ST-002", "from": "INDEXED", "trigger": "WINDOW_CLOSE", "to": "PROVED", "valid": true},
+    {"id": "ST-003", "from": "PROVED", "trigger": "NET_EXECUTE", "to": "NETTED", "valid": true},
+    {"id": "ST-004", "from": "NETTED", "trigger": "EPOCH_CLOSE", "to": "CLOSED", "valid": true},
+    {"id": "ST-005", "from": "PROVED", "trigger": "DEFAULT_TRIGGER", "to": "DEFAULTED", "valid": true},
+    {"id": "ST-006", "from": "DEFAULTED", "trigger": "DEFAULT_RESOLVE", "to": "RESOLVED", "valid": true},
+    {"id": "ST-007", "from": "RECEIPT_CREATED", "trigger": "NET_EXECUTE", "to": "NETTED", "valid": false},
+    {"id": "ST-008", "from": "CLOSED", "trigger": "any", "to": "any", "valid": false}
+  ],
+
+  "paywall": [
+    {"endpoint": "POST /v1/net", "requires_credit": true, "fee_type": "bps", "fee_value": 5},
+    {"endpoint": "POST /v1/epoch/close", "requires_credit": true, "fee_type": "min", "fee_value": 100000},
+    {"endpoint": "POST /v1/credit/draw", "requires_credit": true, "fee_type": "fixed", "fee_value": 1000000},
+    {"endpoint": "POST /v1/default/trigger", "requires_credit": true, "fee_type": "fixed", "fee_value": 5000000},
+    {"endpoint": "POST /v1/default/resolve", "requires_credit": true, "fee_type": "fixed", "fee_value": 25000000000},
+    {"endpoint": "POST /v1/attest/verify", "requires_credit": true, "fee_type": "fixed", "fee_value": 100000},
+    {"endpoint": "GET /v1/index/head", "requires_credit": false},
+    {"endpoint": "POST /v1/index/submit", "requires_credit": false},
+    {"endpoint": "GET /v1/index/proof", "requires_credit": false},
+    {"endpoint": "POST /v1/verify", "requires_credit": false},
+    {"endpoint": "GET /healthz", "requires_credit": false}
+  ]
+}

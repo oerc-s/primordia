@@ -1,0 +1,241 @@
+{
+  "version": "0.1.0",
+  "status": "FROZEN",
+  "description": "Canonical JSON test vectors - DO NOT MODIFY",
+  "canonical_json_fixtures": [
+    {
+      "id": 1,
+      "description": "Empty Object",
+      "input_json": {},
+      "canonical_output": "{}"
+    },
+    {
+      "id": 2,
+      "description": "Empty Array",
+      "input_json": [],
+      "canonical_output": "[]"
+    },
+    {
+      "id": 3,
+      "description": "Simple Object",
+      "input_json": {
+        "age": 30,
+        "name": "Alice"
+      },
+      "canonical_output": "{\"age\":30,\"name\":\"Alice\"}"
+    },
+    {
+      "id": 4,
+      "description": "Sorted Keys",
+      "input_json": {
+        "d": 4,
+        "b": 2,
+        "a": 1,
+        "c": 3
+      },
+      "canonical_output": "{\"a\":1,\"b\":2,\"c\":3,\"d\":4}"
+    },
+    {
+      "id": 5,
+      "description": "Nested Object",
+      "input_json": {
+        "user": {
+          "username": "alice",
+          "id": 12345,
+          "email": "alice@example.com"
+        }
+      },
+      "canonical_output": "{\"user\":{\"email\":\"alice@example.com\",\"id\":12345,\"username\":\"alice\"}}"
+    },
+    {
+      "id": 6,
+      "description": "Array of Values",
+      "input_json": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "canonical_output": "[1,2,3,4,5]"
+    },
+    {
+      "id": 7,
+      "description": "Mixed Types",
+      "input_json": {
+        "value": null,
+        "active": true,
+        "name": "test",
+        "count": 42,
+        "tags": [
+          "a",
+          "b",
+          "c"
+        ]
+      },
+      "canonical_output": "{\"active\":true,\"count\":42,\"name\":\"test\",\"tags\":[\"a\",\"b\",\"c\"],\"value\":null}"
+    },
+    {
+      "id": 8,
+      "description": "Complex Nesting",
+      "input_json": {
+        "status": "success",
+        "data": {
+          "total": 2,
+          "items": [
+            {
+              "value": "first",
+              "id": 1
+            },
+            {
+              "value": "second",
+              "id": 2
+            }
+          ]
+        }
+      },
+      "canonical_output": "{\"data\":{\"items\":[{\"id\":1,\"value\":\"first\"},{\"id\":2,\"value\":\"second\"}],\"total\":2},\"status\":\"success\"}"
+    },
+    {
+      "id": 9,
+      "description": "Unicode Strings",
+      "input_json": {
+        "emoji": "\\ud83d\\ude80",
+        "text": "Hello \\u4e16\\u754c"
+      },
+      "canonical_output": "{\"emoji\":\"\\\\ud83d\\\\ude80\",\"text\":\"Hello \\\\u4e16\\\\u754c\"}"
+    },
+    {
+      "id": 10,
+      "description": "Numbers and Booleans",
+      "input_json": {
+        "zero": 0,
+        "integer": 9007199254740991,
+        "negative": -273,
+        "enabled": false
+      },
+      "canonical_output": "{\"enabled\":false,\"integer\":9007199254740991,\"negative\":-273,\"zero\":0}"
+    }
+  ],
+  "blake3_hash_fixtures": [
+    {
+      "id": 1,
+      "description": "Empty Object",
+      "input": "{}",
+      "blake3_hash": "6e46dd10defc9b56c29a6ec56b508c21f54c08192194e4df25bf36f0c9c3c279"
+    },
+    {
+      "id": 2,
+      "description": "Simple Object",
+      "input": "{\"age\":30,\"name\":\"Alice\"}",
+      "blake3_hash": "b6883ffca9e3c9d2ab29000e1c4747616d1638343cf4c9b5f9e7f62d6ab37c08"
+    },
+    {
+      "id": 3,
+      "description": "Nested Object",
+      "input": "{\"user\":{\"email\":\"alice@example.com\",\"id\":12345,\"username\":\"alice\"}}",
+      "blake3_hash": "f3ca81d14b32341c8bc9359b15fbd33329d505e2277a6ce21084a2322c450295"
+    },
+    {
+      "id": 4,
+      "description": "Array",
+      "input": "[1,2,3,4,5]",
+      "blake3_hash": "ea65c84e5529d07a684e334658ceee7f589765733bd8ab2c851965335935f2b0"
+    },
+    {
+      "id": 5,
+      "description": "Mixed Types",
+      "input": "{\"active\":true,\"count\":42,\"name\":\"test\",\"tags\":[\"a\",\"b\",\"c\"],\"value\":null}",
+      "blake3_hash": "c8aac228e9e211185594122c7963d018b4e71d855149f650dac8b0c1824e831d"
+    }
+  ],
+  "ed25519_signature_fixtures": [
+    {
+      "id": 1,
+      "description": "Simple Message",
+      "message": "{\"message\":\"Hello, World!\"}",
+      "private_key": "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+      "public_key": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "signature": "c7027045d50c2454f5571f75fc32c1d7aa3ee3e2468eab538b53dc91829362939dfe03e35616e51fe31cafd1a882294bc1075ecbb2cf63a880ca60c8093ccc01"
+    },
+    {
+      "id": 2,
+      "description": "Nested Object",
+      "message": "{\"data\":{\"id\":123,\"value\":\"test\"},\"timestamp\":1640000000}",
+      "private_key": "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+      "public_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+      "signature": "1b45b79a8faf2acce3105a04d4a868da93ab562856f4735a5a54a486c02b4e874f52eeee054003de965d34c6ac58c0d4bbc2db05f297d6d5e3916ca5e652ac04"
+    },
+    {
+      "id": 3,
+      "description": "Array Data",
+      "message": "{\"items\":[{\"id\":1,\"name\":\"first\"},{\"id\":2,\"name\":\"second\"}],\"total\":2}",
+      "private_key": "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7",
+      "public_key": "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025",
+      "signature": "f6927a040ac52bbbd1a633640d007986f4d1c91bf85ffe725b57c8e2a85f905e41bc9655ad54217612dc5de556add7a8651581c3b375aab2bc1915ec4ee6f500"
+    }
+  ],
+  "netting_conservation_fixtures": [
+    {
+      "id": 1,
+      "description": "Two-party settlement with net flow",
+      "receipts": [
+        {
+          "payer_agent_id": "A",
+          "payee_agent_id": "B",
+          "price_usd_micros": 100000
+        },
+        {
+          "payer_agent_id": "B",
+          "payee_agent_id": "A",
+          "price_usd_micros": 30000
+        }
+      ],
+      "expected_net": [
+        {
+          "from": "A",
+          "to": "B",
+          "amount_usd_micros": 70000
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "description": "Three-party cycle",
+      "receipts": [
+        {
+          "payer_agent_id": "A",
+          "payee_agent_id": "B",
+          "price_usd_micros": 100000
+        },
+        {
+          "payer_agent_id": "B",
+          "payee_agent_id": "C",
+          "price_usd_micros": 75000
+        },
+        {
+          "payer_agent_id": "C",
+          "payee_agent_id": "A",
+          "price_usd_micros": 50000
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "description": "Equal flows cancel completely",
+      "receipts": [
+        {
+          "payer_agent_id": "A",
+          "payee_agent_id": "B",
+          "price_usd_micros": 100000
+        },
+        {
+          "payer_agent_id": "B",
+          "payee_agent_id": "A",
+          "price_usd_micros": 100000
+        }
+      ],
+      "expected_net": []
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: primordia
+      POSTGRES_PASSWORD: primordia
+      POSTGRES_DB: primordia
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U primordia"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  clearing-kernel:
+    build: ./clearing-kernel
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - TEST_MODE=true
+      - DATABASE_URL=postgresql://primordia:primordia@postgres:5432/primordia
+      - DATABASE_SSL=false
+      - FREE_TIER_RATE_LIMIT=1000
+      - NETTING_FEE_BPS=5
+      - CREDIT_SPREAD_BPS=200
+      - ADMIN_API_KEY=admin-test-key
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:

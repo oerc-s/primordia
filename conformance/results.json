@@ -1,0 +1,104 @@
+{
+  "timestamp": "2025-12-23T17:52:06.002Z",
+  "passed": 24,
+  "failed": 0,
+  "skipped": 0,
+  "tests": [
+    {
+      "name": "key ordering",
+      "status": "pass"
+    },
+    {
+      "name": "nested ordering",
+      "status": "pass"
+    },
+    {
+      "name": "array preservation",
+      "status": "pass"
+    },
+    {
+      "name": "null handling",
+      "status": "pass"
+    },
+    {
+      "name": "boolean true",
+      "status": "pass"
+    },
+    {
+      "name": "boolean false",
+      "status": "pass"
+    },
+    {
+      "name": "integer positive",
+      "status": "pass"
+    },
+    {
+      "name": "integer negative",
+      "status": "pass"
+    },
+    {
+      "name": "float rejection",
+      "status": "pass"
+    },
+    {
+      "name": "determinism",
+      "status": "pass"
+    },
+    {
+      "name": "valid MSR accepted",
+      "status": "pass"
+    },
+    {
+      "name": "version 0.1",
+      "status": "pass"
+    },
+    {
+      "name": "different payer/payee",
+      "status": "pass"
+    },
+    {
+      "name": "positive units",
+      "status": "pass"
+    },
+    {
+      "name": "non-negative price",
+      "status": "pass"
+    },
+    {
+      "name": "positive timestamp",
+      "status": "pass"
+    },
+    {
+      "name": "agent_id 64 chars",
+      "status": "pass"
+    },
+    {
+      "name": "signature 128 chars",
+      "status": "pass"
+    },
+    {
+      "name": "two-party net",
+      "status": "pass"
+    },
+    {
+      "name": "equal flows cancel",
+      "status": "pass"
+    },
+    {
+      "name": "netting determinism",
+      "status": "pass"
+    },
+    {
+      "name": "solvency 2x",
+      "status": "pass"
+    },
+    {
+      "name": "solvency no liabilities",
+      "status": "pass"
+    },
+    {
+      "name": "solvency undercollateralized",
+      "status": "pass"
+    }
+  ]
+}

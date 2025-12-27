@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "primordia-sdk"
+version = "0.1.0"
+description = "Primordia Inter-Agent Settlement SDK"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+keywords = ["primordia", "agent", "settlement", "msr", "netting", "crypto"]
+dependencies = [
+    "pynacl>=1.5.0",
+    "blake3>=0.4.0"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0", "mypy>=1.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]

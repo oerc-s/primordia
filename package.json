@@ -1,0 +1,27 @@
+{
+  "name": "primordia",
+  "version": "0.1.0",
+  "description": "Inter-Agent Economic Settlement Primitives",
+  "type": "module",
+  "scripts": {
+    "install:all": "cd sdk-ts && npm install && cd ../clearing-kernel && npm install",
+    "build": "cd sdk-ts && npm run build && cd ../clearing-kernel && npm run build",
+    "status": "node orchestrator/primordia.js status",
+    "swarm": "node orchestrator/primordia.js swarm",
+    "ship": "node orchestrator/primordia.js ship",
+    "distro": "node orchestrator/primordia.js distro",
+    "cash": "node orchestrator/primordia.js cash",
+    "kernel": "cd clearing-kernel && node dist/server.js",
+    "conformance": "node conformance/run.js",
+    "hooks": "node scripts/run-hooks.js"
+  },
+  "keywords": [
+    "agent",
+    "settlement",
+    "netting",
+    "msr",
+    "economic",
+    "primitives"
+  ],
+  "license": "MIT"
+}

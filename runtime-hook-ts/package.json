@@ -1,0 +1,46 @@
+{
+  "name": "@primordia/runtime-hook",
+  "version": "0.1.0",
+  "description": "TypeScript runtime hook for Primordia agent metering - shadow and paid modes",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "primordia",
+    "metering",
+    "llm",
+    "runtime",
+    "hook",
+    "agent"
+  ],
+  "author": "Primordia",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "rimraf": "^5.0.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@primordia/crypto-core": "*"
+  },
+  "peerDependenciesMeta": {
+    "@primordia/crypto-core": {
+      "optional": true
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/primordia/runtime-hook-ts"
+  }
+}

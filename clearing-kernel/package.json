@@ -1,0 +1,43 @@
+{
+  "name": "@primordia/clearing-kernel",
+  "version": "0.1.0",
+  "description": "Primordia Clearing Kernel - Multi-Agent Settlement Infrastructure",
+  "main": "dist/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsc && node --watch dist/server.js",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "jest"
+  },
+  "keywords": [
+    "primordia",
+    "clearing",
+    "settlement",
+    "multi-agent"
+  ],
+  "author": "Primordia",
+  "license": "MIT",
+  "dependencies": {
+    "@noble/ed25519": "^2.1.0",
+    "@noble/hashes": "^1.4.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "pg": "^8.11.3",
+    "stripe": "^14.10.0"
+  },
+  "devDependencies": {
+    "@flydotio/dockerfile": "^0.7.10",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.10.6",
+    "@types/pg": "^8.10.9",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.3.3"
+  }
+}

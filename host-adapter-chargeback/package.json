@@ -1,0 +1,49 @@
+{
+  "name": "@primordia/host-adapter-chargeback",
+  "version": "0.1.0",
+  "description": "Enterprise chargeback adapter - transforms usage logs into canonical receipts",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "primordia": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "primordia",
+    "chargeback",
+    "settlement",
+    "receipts",
+    "msr"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/primordia/primordia.git",
+    "directory": "host-adapter-chargeback"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@primordia/sdk": "file:../sdk-ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
