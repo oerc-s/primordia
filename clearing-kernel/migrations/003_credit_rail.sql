@@ -3,6 +3,10 @@
 
 BEGIN;
 
+-- Drop old indexes that reference columns we are removing (from migration 001)
+DROP INDEX IF EXISTS idx_credit_lines_agent;
+DROP INDEX IF EXISTS idx_credit_events_agent;
+
 -- Drop all credit tables if they exist with wrong schema
 DROP TABLE IF EXISTS collateral_locks CASCADE;
 DROP TABLE IF EXISTS margin_calls CASCADE;
@@ -29,8 +33,6 @@ CREATE INDEX IF NOT EXISTS idx_credit_lines_lender ON credit_lines(lender_agent_
 CREATE INDEX IF NOT EXISTS idx_credit_lines_status ON credit_lines(status);
 
 -- Credit Positions (current state)
--- Drop and recreate if schema is wrong
-DROP TABLE IF EXISTS credit_positions CASCADE;
 CREATE TABLE credit_positions (
     credit_line_id TEXT PRIMARY KEY,
     borrower_agent_id TEXT NOT NULL,
