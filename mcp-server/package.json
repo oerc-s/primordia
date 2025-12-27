@@ -1,11 +1,11 @@
 {
-  "name": "@primordia/mcp-server",
+  "name": "@primordia1/mcp-server",
   "version": "0.1.0",
   "description": "MCP server exposing Primordia clearing tools",
   "type": "module",
   "main": "build/index.js",
   "bin": {
-    "primordia-clearing": "./build/index.js"
+    "primordia-clearing": "build/index.js"
   },
   "scripts": {
     "build": "tsc",
