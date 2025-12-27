@@ -1,5 +1,6 @@
 -- Primordia Clearing Kernel PostgreSQL Schema v0.1.0
 -- Initial migration: core tables for clearing-grade persistence
+-- NOTE: credit_lines and credit_events are defined in 003_credit_rail.sql
 
 BEGIN;
 
@@ -26,32 +27,8 @@ CREATE TABLE IF NOT EXISTS credit_accounts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Credit events (all credit mutations)
-CREATE TABLE IF NOT EXISTS credit_events (
-    id BIGSERIAL PRIMARY KEY,
-    agent_id TEXT NOT NULL REFERENCES credit_accounts(agent_id),
-    delta_usd_micros BIGINT NOT NULL,
-    reason TEXT NOT NULL,
-    reference TEXT,
-    balance_after BIGINT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_credit_events_agent ON credit_events(agent_id);
-CREATE INDEX IF NOT EXISTS idx_credit_events_created ON credit_events(created_at);
-
--- Credit lines
-CREATE TABLE IF NOT EXISTS credit_lines (
-    credit_line_id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL REFERENCES credit_accounts(agent_id),
-    mbs_reference TEXT NOT NULL,
-    limit_usd_micros BIGINT NOT NULL,
-    drawn_usd_micros BIGINT NOT NULL DEFAULT 0,
-    terms_hash TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'frozen', 'closed')),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_credit_lines_agent ON credit_lines(agent_id);
+-- NOTE: credit_events and credit_lines are now defined in 003_credit_rail.sql
+-- with different schema (borrower_agent_id, lender_agent_id instead of agent_id)
 
 -- Netting windows (epochs)
 CREATE TABLE IF NOT EXISTS netting_windows (
