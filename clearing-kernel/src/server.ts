@@ -11,6 +11,7 @@ import { canonicalizeBytes } from './canonical.js';
 import { StripeService } from './stripe-service.js';
 import { CreditService } from './credit-service.js';
 import * as db from './db.js';
+import { registerALREndpoints } from './alr.js';
 import type {
   NettingRequest,
   NettingResponse,
@@ -1658,6 +1659,9 @@ app.use((req: Request, res: Response) => {
 });
 
 // ============================================================================
+// Register ALR Endpoints (Enterprise)
+registerALREndpoints(app, KERNEL_PRIVATE_KEY, KERNEL_PUBLIC_KEY);
+
 // Start Server
 // ============================================================================
 

@@ -499,6 +499,21 @@ export async function getSealByTarget(target_base_url: string): Promise<any | nu
   return result.rows[0]?.seal_payload_json || null;
 }
 
+export async function getSealForAgent(agent_id: string): Promise<any | null> {
+  const result = await query(
+    'SELECT seal_id, target_base_url, seal_payload_json, seal_hash, created_at FROM seals WHERE target_base_url LIKE $1 ORDER BY created_at DESC LIMIT 1',
+    ['%' + agent_id + '%']
+  );
+  if (result.rows.length === 0) return null;
+  return {
+    seal_id: result.rows[0].seal_id,
+    target_base_url: result.rows[0].target_base_url,
+    payload: result.rows[0].seal_payload_json,
+    seal_hash: result.rows[0].seal_hash,
+    created_at: result.rows[0].created_at
+  };
+}
+
 // ============================================================================
 // Default Case Operations
 // ============================================================================
