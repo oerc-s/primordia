@@ -1,7 +1,7 @@
 {
   "name": "@primordia1/mcp-server",
-  "version": "0.1.0",
-  "description": "MCP server exposing Primordia clearing tools",
+  "version": "0.3.0",
+  "description": "The financial layer for AI agents — transactions, escrow, credit, netting",
   "type": "module",
   "main": "build/index.js",
   "bin": {

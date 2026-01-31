@@ -73,8 +73,44 @@ export function registerALREndpoints(app: Express, KERNEL_PRIVATE_KEY: string, K
 
     let totalReceivables = 0;
     let totalPayables = 0;
+    let totalAllocationsOut = 0;
+    let totalAllocationsIn = 0;
+    let totalAllocationFees = 0;
     const counterparties: Record<string, { receivable: number; payable: number }> = {};
     const lineItems: any[] = [];
+    const allocationItems: any[] = [];
+
+    // Fetch allocations for this agent (both inbound and outbound)
+    const allocationsResult = await db.query(
+      `SELECT * FROM allocations WHERE from_wallet = $1 OR to_wallet = $1 ORDER BY created_at DESC`,
+      [agent_id]
+    );
+    const allocations = allocationsResult.rows || [];
+
+    // Process allocations
+    for (const alloc of allocations) {
+      const isOutbound = alloc.from_wallet === agent_id;
+      const amount = parseInt(alloc.amount_usd_micros);
+      const fee = parseInt(alloc.fee_usd_micros);
+
+      if (isOutbound) {
+        totalAllocationsOut += amount;
+        totalAllocationFees += fee;
+      } else {
+        totalAllocationsIn += amount;
+      }
+
+      allocationItems.push({
+        allocation_id: alloc.allocation_id,
+        direction: isOutbound ? 'OUTBOUND' : 'INBOUND',
+        counterparty: isOutbound ? alloc.to_wallet : alloc.from_wallet,
+        amount_usd: amount / 1_000_000,
+        fee_usd: isOutbound ? fee / 1_000_000 : 0,
+        fee_bps: alloc.fee_bps,
+        window_id: alloc.window_id,
+        timestamp: alloc.created_at
+      });
+    }
 
     for (const ian of signedIANs) {
       const payload = ian.payload_json;
@@ -127,7 +163,12 @@ export function registerALREndpoints(app: Express, KERNEL_PRIVATE_KEY: string, K
         total_payables_usd: totalPayables / 1_000_000,
         net_position_usd: netPosition / 1_000_000,
         ian_windows_count: signedIANs.length,
-        line_items_count: lineItems.length
+        line_items_count: lineItems.length,
+        // Allocation data
+        allocations_out_usd: totalAllocationsOut / 1_000_000,
+        allocations_in_usd: totalAllocationsIn / 1_000_000,
+        allocation_fees_usd: totalAllocationFees / 1_000_000,
+        allocations_count: allocationItems.length
       },
       counterparty_breakdown: Object.entries(counterparties).map(([cp, data]) => ({
         counterparty_id: cp,
@@ -136,6 +177,12 @@ export function registerALREndpoints(app: Express, KERNEL_PRIVATE_KEY: string, K
         net_usd: (data.receivable - data.payable) / 1_000_000
       })),
       line_items: lineItems,
+      allocations: allocationItems,
+      chargeback_rollup: {
+        total_allocated_usd: (totalAllocationsIn) / 1_000_000,
+        total_fees_charged_usd: totalAllocationFees / 1_000_000,
+        net_budget_position_usd: (totalAllocationsIn - totalAllocationsOut) / 1_000_000
+      },
       generated_at: new Date(now).toISOString(),
       generated_by: 'primordia-clearing-kernel',
       fee_charged_usd: ALR_FEE_USD_MICROS / 1_000_000,
@@ -181,6 +228,15 @@ export function registerALREndpoints(app: Express, KERNEL_PRIVATE_KEY: string, K
       for (const item of lineItems) {
         csv += `${item.ian_hash},${item.counterparty},${item.type},${item.amount_usd},${item.timestamp},${item.kernel_signed}\n`;
       }
+      csv += '\nALLOCATIONS\n';
+      csv += 'Allocation ID,Direction,Counterparty,Amount USD,Fee USD,Fee BPS,Window ID,Timestamp\n';
+      for (const alloc of allocationItems) {
+        csv += `${alloc.allocation_id},${alloc.direction},${alloc.counterparty},${alloc.amount_usd},${alloc.fee_usd},${alloc.fee_bps},${alloc.window_id || ''},${alloc.timestamp}\n`;
+      }
+      csv += '\nCHARGEBACK ROLLUP\n';
+      csv += `Total Allocated USD,${(totalAllocationsIn) / 1_000_000}\n`;
+      csv += `Total Fees Charged USD,${totalAllocationFees / 1_000_000}\n`;
+      csv += `Net Budget Position USD,${(totalAllocationsIn - totalAllocationsOut) / 1_000_000}\n`;
       csv += `\nVERIFICATION\n`;
       csv += `ALR Hash,${alrHash}\n`;
       csv += `Kernel Signature,${alrSignature}\n`;

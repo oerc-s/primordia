@@ -1,4 +1,26 @@
 #!/usr/bin/env node
+/**
+ * PRIMORDIA MCP SERVER v0.3.0
+ *
+ * 10 TOOLS - Agent-first, zero friction
+ *
+ * Auto-registers agent identity on first tool call.
+ * Set AGENT_NAME env var to customize your agent's name.
+ *
+ * FREE (rate-limited, 1000 tx/month):
+ *   - verify        → verify receipt or seal
+ *   - emit_meter    → local metering (no network)
+ *   - settle        → settle between 2 agents (kernel-signed MSR)
+ *   - agent_profile → view agent stats + recent transactions
+ *   - leaderboard   → top 50 agents by volume
+ *   - escrow        → lock/release/dispute agent-to-agent transactions
+ *
+ * PAID (402 if no credit):
+ *   - net      → signed IAN (5 bps)
+ *   - report   → MBS or ALR (pack_team required)
+ *   - credit   → open/draw/repay/close credit line
+ */
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -8,943 +30,418 @@ import {
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 
-const KERNEL_URL = process.env.PRIMORDIA_KERNEL_URL || 'http://localhost:3000';
+const KERNEL_URL = process.env.PRIMORDIA_KERNEL_URL || 'https://clearing.kaledge.app';
+const AGENT_NAME = process.env.AGENT_NAME || process.env.USER || 'mcp-agent';
 
-// Helper function to call Primordia kernel API
-async function callKernel(endpoint: string, payload: any): Promise<any> {
+// =============================================
+// AUTO-REGISTRATION: Zero friction identity
+// Agent is registered on first tool call. No manual step.
+// =============================================
+let cachedIdentity: { agent_id: string; pubkey: string; private_key: string } | null = null;
+
+async function ensureIdentity(): Promise<{ agent_id: string; pubkey: string; private_key: string }> {
+  if (cachedIdentity) return cachedIdentity;
+
+  try {
+    const result = await callKernel('/v1/agent/register', {
+      name: AGENT_NAME,
+      description: `Auto-registered via MCP (${new Date().toISOString()})`
+    });
+
+    if (result.agent_id) {
+      cachedIdentity = {
+        agent_id: result.agent_id,
+        pubkey: result.pubkey,
+        private_key: result.private_key,
+      };
+      console.error(`[Identity] Registered: ${result.agent_id} (${AGENT_NAME})`);
+      return cachedIdentity;
+    }
+
+    throw new Error('Registration failed: no agent_id returned');
+  } catch (error) {
+    throw new McpError(ErrorCode.InternalError, `Auto-registration failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function callKernel(endpoint: string, payload: any, method: 'POST' | 'GET' = 'POST'): Promise<any> {
   const url = `${KERNEL_URL}${endpoint}`;
 
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    const options: RequestInit = {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+    };
+    if (method === 'POST') {
+      options.body = JSON.stringify(payload);
+    }
+
+    const response = await fetch(url, options);
 
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Kernel API error (${response.status}): ${errorText}`);
+      const errorData = await response.json().catch(() => ({ error: response.statusText })) as any;
+
+      // Return 402 errors with blocking info intact
+      if (response.status === 402) {
+        return {
+          error: errorData?.error || 'BOOKS OPEN - Credit required',
+          status: 402,
+          blocking: errorData?.blocking,
+          process_blocked: errorData?.process_blocked,
+          action: errorData?.action,
+        };
+      }
+
+      throw new Error(`Kernel API error (${response.status}): ${JSON.stringify(errorData)}`);
     }
 
     return await response.json();
   } catch (error) {
     if (error instanceof Error) {
-      throw new McpError(
-        ErrorCode.InternalError,
-        `Failed to call kernel: ${error.message}`
-      );
+      throw new McpError(ErrorCode.InternalError, `Failed to call kernel: ${error.message}`);
     }
     throw error;
   }
 }
 
 const server = new Server(
-  {
-    name: "primordia-clearing",
-    version: "0.1.0",
-  },
-  {
-    capabilities: {
-      tools: {},
-    },
-  }
+  { name: "primordia-clearing", version: "0.3.0" },
+  { capabilities: { tools: {} } }
 );
 
-// List available tools
+// =============================================
+// TOOL DEFINITIONS - MINIMAL SURFACE
+// =============================================
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
+    // ==================
+    // FREE TOOLS
+    // ==================
     {
-      name: "verify_receipt",
-      description: "Verify signature of MSR/IAN/FC receipt (FREE operation)",
+      name: "whoami",
+      description: "Get your agent identity. Auto-registers on first call. Returns your agent_id, pubkey, and profile. FREE.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+    },
+    {
+      name: "verify",
+      description: "Verify a receipt (MSR/IAN/FC) or conformance seal. FREE operation, rate-limited.",
       inputSchema: {
         type: "object",
         properties: {
           type: {
             type: "string",
-            enum: ["MSR", "IAN", "FC"],
-            description: "Receipt type: MSR (Micropayment Settlement Receipt), IAN (Inter-Agent Note), or FC (Future Commitment)",
+            enum: ["msr", "ian", "fc", "seal"],
+            description: "What to verify: msr, ian, fc, or seal",
           },
           payload: {
             type: "object",
-            description: "The receipt payload to verify",
+            description: "The receipt or seal payload to verify",
           },
         },
         required: ["type", "payload"],
       },
     },
     {
-      name: "net_receipts",
-      description: "Net multiple receipts into a signed IAN (PAID operation)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent_id: {
-            type: "string",
-            description: "Agent ID requesting the netting",
-          },
-          receipts: {
-            type: "array",
-            items: {
-              type: "object",
-            },
-            description: "Array of receipts to net together",
-          },
-        },
-        required: ["agent_id", "receipts"],
-      },
-    },
-    // =====================
-    // RAIL-2 CREDIT TOOLS
-    // =====================
-    {
-      name: "open_credit_line",
-      description: "Open a credit line between borrower and lender (PAID - 50 bps of limit, SEAL REQUIRED)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          borrower_agent_id: {
-            type: "string",
-            description: "Borrower agent ID (must have valid Primordia Seal)",
-          },
-          lender_agent_id: {
-            type: "string",
-            description: "Lender agent ID",
-          },
-          limit_usd_micros: {
-            type: "number",
-            description: "Credit limit in USD micros (1 USD = 1,000,000 micros)",
-          },
-          spread_bps: {
-            type: "number",
-            description: "Interest rate spread in basis points (default: 200 = 2%)",
-          },
-          maturity_ts: {
-            type: "number",
-            description: "Optional maturity timestamp (epoch ms)",
-          },
-          collateral_ratio_min_bps: {
-            type: "number",
-            description: "Minimum collateral ratio in bps (default: 15000 = 150%)",
-          },
-          request_hash: {
-            type: "string",
-            description: "Unique request hash for idempotency",
-          },
-        },
-        required: ["borrower_agent_id", "lender_agent_id", "limit_usd_micros", "request_hash"],
-      },
-    },
-    {
-      name: "update_credit_line",
-      description: "Update credit line parameters (PAID - $10, SEAL REQUIRED)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          credit_line_id: {
-            type: "string",
-            description: "Credit line ID to update",
-          },
-          agent_id: {
-            type: "string",
-            description: "Agent ID (borrower or lender)",
-          },
-          limit_usd_micros: {
-            type: "number",
-            description: "New credit limit in USD micros",
-          },
-          spread_bps: {
-            type: "number",
-            description: "New interest rate spread in bps",
-          },
-          status: {
-            type: "string",
-            enum: ["active", "suspended"],
-            description: "New status",
-          },
-          request_hash: {
-            type: "string",
-            description: "Unique request hash for idempotency",
-          },
-        },
-        required: ["credit_line_id", "agent_id", "request_hash"],
-      },
-    },
-    {
-      name: "close_credit_line",
-      description: "Close a credit line (FREE, SEAL REQUIRED, must have zero balance)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          credit_line_id: {
-            type: "string",
-            description: "Credit line ID to close",
-          },
-          agent_id: {
-            type: "string",
-            description: "Agent ID (borrower or lender)",
-          },
-          request_hash: {
-            type: "string",
-            description: "Unique request hash for idempotency",
-          },
-        },
-        required: ["credit_line_id", "agent_id", "request_hash"],
-      },
-    },
-    {
-      name: "draw_credit",
-      description: "Draw principal from a credit line (PAID - 10 bps of draw, SEAL REQUIRED)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          credit_line_id: {
-            type: "string",
-            description: "Credit line ID to draw from",
-          },
-          borrower_agent_id: {
-            type: "string",
-            description: "Borrower agent ID",
-          },
-          amount_usd_micros: {
-            type: "number",
-            description: "Amount to draw in USD micros",
-          },
-          request_hash: {
-            type: "string",
-            description: "Unique request hash for idempotency",
-          },
-        },
-        required: ["credit_line_id", "borrower_agent_id", "amount_usd_micros", "request_hash"],
-      },
-    },
-    {
-      name: "repay_credit",
-      description: "Repay principal, interest, or fees on a credit line (FREE, SEAL REQUIRED)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          credit_line_id: {
-            type: "string",
-            description: "Credit line ID to repay",
-          },
-          borrower_agent_id: {
-            type: "string",
-            description: "Borrower agent ID",
-          },
-          principal_usd_micros: {
-            type: "number",
-            description: "Principal amount to repay in USD micros",
-          },
-          interest_usd_micros: {
-            type: "number",
-            description: "Interest amount to repay in USD micros",
-          },
-          fees_usd_micros: {
-            type: "number",
-            description: "Fees amount to repay in USD micros",
-          },
-          request_hash: {
-            type: "string",
-            description: "Unique request hash for idempotency",
-          },
-        },
-        required: ["credit_line_id", "borrower_agent_id", "request_hash"],
-      },
-    },
-    {
-      name: "accrue_interest",
-      description: "Accrue interest on a credit position (PAID - $1, SEAL REQUIRED)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          credit_line_id: {
-            type: "string",
-            description: "Credit line ID",
-          },
-          agent_id: {
-            type: "string",
-            description: "Agent ID (borrower or lender)",
-          },
-          window_id: {
-            type: "string",
-            description: "Accrual window identifier (e.g., 'window_2024_01')",
-          },
-          days_accrued: {
-            type: "number",
-            description: "Number of days to accrue interest for",
-          },
-          request_hash: {
-            type: "string",
-            description: "Unique request hash for idempotency",
-          },
-        },
-        required: ["credit_line_id", "agent_id", "window_id", "days_accrued", "request_hash"],
-      },
-    },
-    {
-      name: "apply_fee",
-      description: "Apply a fee to a credit position (PAID - $1, SEAL REQUIRED)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          credit_line_id: {
-            type: "string",
-            description: "Credit line ID",
-          },
-          agent_id: {
-            type: "string",
-            description: "Agent ID",
-          },
-          fee_type: {
-            type: "string",
-            enum: ["origination", "late", "maintenance", "other"],
-            description: "Type of fee",
-          },
-          amount_usd_micros: {
-            type: "number",
-            description: "Fee amount in USD micros",
-          },
-          reason: {
-            type: "string",
-            description: "Reason for the fee",
-          },
-          request_hash: {
-            type: "string",
-            description: "Unique request hash for idempotency",
-          },
-        },
-        required: ["credit_line_id", "agent_id", "fee_type", "amount_usd_micros", "reason", "request_hash"],
-      },
-    },
-    {
-      name: "margin_call",
-      description: "Issue or resolve a margin call (PAID - $100, SEAL REQUIRED)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          credit_line_id: {
-            type: "string",
-            description: "Credit line ID",
-          },
-          agent_id: {
-            type: "string",
-            description: "Agent ID (lender for call, borrower for resolve)",
-          },
-          action: {
-            type: "string",
-            enum: ["call", "resolve", "escalate"],
-            description: "Margin call action",
-          },
-          margin_call_id: {
-            type: "string",
-            description: "Margin call ID (required for resolve/escalate)",
-          },
-          reason: {
-            type: "string",
-            description: "Reason for margin call",
-          },
-          required_usd_micros: {
-            type: "number",
-            description: "Amount required to meet margin",
-          },
-          due_ts: {
-            type: "number",
-            description: "Due timestamp (epoch ms)",
-          },
-          request_hash: {
-            type: "string",
-            description: "Unique request hash for idempotency",
-          },
-        },
-        required: ["credit_line_id", "agent_id", "action", "request_hash"],
-      },
-    },
-    {
-      name: "lock_collateral",
-      description: "Lock collateral against a credit line (PAID - $10, SEAL REQUIRED)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          credit_line_id: {
-            type: "string",
-            description: "Credit line ID",
-          },
-          agent_id: {
-            type: "string",
-            description: "Borrower agent ID",
-          },
-          asset_ref: {
-            type: "string",
-            description: "Asset reference (e.g., 'ian:abc123', 'msr:def456')",
-          },
-          asset_type: {
-            type: "string",
-            enum: ["ian", "msr", "fc", "external"],
-            description: "Type of collateral asset",
-          },
-          amount_usd_micros: {
-            type: "number",
-            description: "Collateral value in USD micros",
-          },
-          request_hash: {
-            type: "string",
-            description: "Unique request hash for idempotency",
-          },
-        },
-        required: ["credit_line_id", "agent_id", "asset_ref", "asset_type", "amount_usd_micros", "request_hash"],
-      },
-    },
-    {
-      name: "unlock_collateral",
-      description: "Unlock collateral from a credit line (PAID - $10, SEAL REQUIRED)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          collateral_lock_id: {
-            type: "string",
-            description: "Collateral lock ID to unlock",
-          },
-          agent_id: {
-            type: "string",
-            description: "Borrower agent ID",
-          },
-          request_hash: {
-            type: "string",
-            description: "Unique request hash for idempotency",
-          },
-        },
-        required: ["collateral_lock_id", "agent_id", "request_hash"],
-      },
-    },
-    {
-      name: "liquidate",
-      description: "Liquidate a credit position (PAID - 5% of liquidated value, SEAL REQUIRED)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          credit_line_id: {
-            type: "string",
-            description: "Credit line ID to liquidate",
-          },
-          agent_id: {
-            type: "string",
-            description: "Lender agent ID",
-          },
-          margin_call_id: {
-            type: "string",
-            description: "Associated margin call ID",
-          },
-          request_hash: {
-            type: "string",
-            description: "Unique request hash for idempotency",
-          },
-        },
-        required: ["credit_line_id", "agent_id", "margin_call_id", "request_hash"],
-      },
-    },
-    {
-      name: "commit_future",
-      description: "Commit a Future Commitment (FC) to the clearing system (PAID operation)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent_id: {
-            type: "string",
-            description: "Agent ID making the commitment",
-          },
-          fc: {
-            type: "object",
-            description: "Future Commitment object with promise, collateral, and settlement terms",
-          },
-        },
-        required: ["agent_id", "fc"],
-      },
-    },
-    {
-      name: "trigger_default",
-      description: "Trigger a default event for an agent (PAID operation)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          agent_id: {
-            type: "string",
-            description: "Agent ID being defaulted",
-          },
-          reason: {
-            type: "string",
-            description: "Reason for the default (e.g., missed payment, insufficient collateral)",
-          },
-        },
-        required: ["agent_id", "reason"],
-      },
-    },
-    {
-      name: "verify_seal",
-      description: "Verify a conformance seal for protocol compliance (FREE operation)",
-      inputSchema: {
-        type: "object",
-        properties: {
-          seal: {
-            type: "object",
-            description: "Conformance seal object to verify",
-          },
-        },
-        required: ["seal"],
-      },
-    },
-    {
       name: "emit_meter",
-      description: "Emit a metering receipt (Compute or Energy). LOCAL by default (no network). Set submit=true to index for later netting.",
+      description: "Emit a metering receipt (compute/energy). LOCAL operation - no network call. Use 'net' tool to settle.",
       inputSchema: {
         type: "object",
         properties: {
           type: {
             type: "string",
             enum: ["compute", "energy"],
-            description: "Meter type: 'compute' (GPU/CPU tokens) or 'energy' (kWh)",
+            description: "Meter type: compute (tokens) or energy (kWh)",
           },
           agent_id: {
             type: "string",
-            description: "Agent ID emitting the meter receipt",
+            description: "Your agent ID",
           },
           provider: {
             type: "string",
-            description: "Provider ID (e.g., 'openai', 'anthropic', 'aws')",
+            description: "Provider ID (openai, anthropic, aws, etc.)",
           },
           units: {
             type: "number",
-            description: "Units consumed (tokens for compute, kWh for energy)",
+            description: "Units consumed (tokens or kWh)",
           },
           unit_price_usd_micros: {
             type: "number",
-            description: "Price per unit in USD micros (1 USD = 1,000,000 micros)",
+            description: "Price per unit in USD micros (1 USD = 1,000,000)",
           },
           metadata: {
             type: "object",
-            description: "Optional metadata (model, region, etc.)",
-          },
-          submit: {
-            type: "boolean",
-            description: "If true, submit to kernel /v1/index/batch for later netting. Default: false (local only)",
+            description: "Optional: model, region, etc.",
           },
         },
         required: ["type", "agent_id", "provider", "units", "unit_price_usd_micros"],
       },
     },
+
     {
-      name: "get_balance_sheet",
-      description: "Get audit-grade Machine Balance Sheet (MBS) based on SIGNED IAN windows. PAID operation - requires credit or sealed agent.",
+      name: "settle",
+      description: "Settle a transaction with another agent. Kernel-signed MSR. FREE (1000/month). Your agent_id is auto-filled. Just say: 'Pay agent X $5 for Y'.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          to_agent_id: {
+            type: "string",
+            description: "The other agent ID (the payee)",
+          },
+          amount_usd_micros: {
+            type: "number",
+            description: "Amount in USD micros (1 USD = 1,000,000). Example: 5000000 = $5",
+          },
+          description: {
+            type: "string",
+            description: "What this transaction is for",
+          },
+          from_agent_id: {
+            type: "string",
+            description: "Optional: your agent ID. Auto-filled if omitted.",
+          },
+        },
+        required: ["to_agent_id", "amount_usd_micros"],
+      },
+    },
+    {
+      name: "agent_profile",
+      description: "View an agent's public profile: name, total volume, settlement count, recent transactions. FREE.",
       inputSchema: {
         type: "object",
         properties: {
           agent_id: {
             type: "string",
-            description: "Agent ID to get balance sheet for",
-          },
-          as_of_epoch: {
-            type: "number",
-            description: "Optional: epoch number for historical balance. Default: current",
-          },
-          include_pending: {
-            type: "boolean",
-            description: "Include pending (un-netted) receipts. Default: false",
+            description: "Agent ID to look up",
           },
         },
         required: ["agent_id"],
       },
     },
+    {
+      name: "leaderboard",
+      description: "Top 50 agents ranked by settlement volume. See who's leading. FREE.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+      },
+    },
+    {
+      name: "escrow",
+      description: "Secure agent-to-agent transaction with escrow. Lock funds, release on confirmation, or dispute. Your agent_id auto-filled as buyer. FREE (1000/month).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["create", "release", "dispute", "status"],
+            description: "Escrow action: create, release, dispute, or status",
+          },
+          buyer_agent_id: {
+            type: "string",
+            description: "Optional: buyer agent ID. Auto-filled if omitted.",
+          },
+          seller_agent_id: {
+            type: "string",
+            description: "Seller agent ID (for create)",
+          },
+          amount_usd_micros: {
+            type: "number",
+            description: "Amount in USD micros (for create). Example: 5000000 = $5",
+          },
+          escrow_id: {
+            type: "string",
+            description: "Escrow ID (for release, dispute, status)",
+          },
+          released_by: {
+            type: "string",
+            description: "Agent ID releasing the escrow (buyer only, for release)",
+          },
+          disputed_by: {
+            type: "string",
+            description: "Agent ID disputing (for dispute)",
+          },
+          reason: {
+            type: "string",
+            description: "Reason for dispute (for dispute)",
+          },
+          description: {
+            type: "string",
+            description: "Transaction description (for create)",
+          },
+        },
+        required: ["action"],
+      },
+    },
+
+    // ==================
+    // PAID TOOLS
+    // ==================
+    {
+      name: "net",
+      description: "Net receipts into kernel-signed IAN. PAID: 5 bps fee. Returns 402 if no credit.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          agent_id: {
+            type: "string",
+            description: "Your agent ID",
+          },
+          receipts: {
+            type: "array",
+            items: { type: "object" },
+            description: "Array of MSR receipts to net",
+          },
+        },
+        required: ["agent_id", "receipts"],
+      },
+    },
+    {
+      name: "report",
+      description: "Generate audit-grade report. PAID: requires pack_team ($25K). Returns 402 with blocking status if requirements not met.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            enum: ["mbs", "alr"],
+            description: "Report type: mbs (Machine Balance Sheet) or alr (Agent Liability Report)",
+          },
+          agent_id: {
+            type: "string",
+            description: "Agent ID to generate report for",
+          },
+          period_start: {
+            type: "string",
+            description: "Optional: ISO date for period start (ALR only)",
+          },
+          period_end: {
+            type: "string",
+            description: "Optional: ISO date for period end (ALR only)",
+          },
+          format: {
+            type: "string",
+            enum: ["json", "csv"],
+            description: "Output format (default: json)",
+          },
+        },
+        required: ["type", "agent_id"],
+      },
+    },
+    {
+      name: "credit",
+      description: "Credit/allocation operations. PAID: requires SEAL for credit lines. Allocations charge 10bps fee.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["packs", "status", "open", "draw", "repay", "allocate", "allocations", "coverage"],
+            description: "Credit action: packs|status|open|draw|repay|allocate|allocations|coverage",
+          },
+          agent_id: {
+            type: "string",
+            description: "Your agent ID (borrower)",
+          },
+          // For open
+          lender_agent_id: {
+            type: "string",
+            description: "Lender agent ID (for open)",
+          },
+          limit_usd_micros: {
+            type: "number",
+            description: "Credit limit in USD micros (for open)",
+          },
+          // For draw/repay
+          credit_line_id: {
+            type: "string",
+            description: "Credit line ID (for draw/repay/close)",
+          },
+          amount_usd_micros: {
+            type: "number",
+            description: "Amount in USD micros (for draw/repay/allocate)",
+          },
+          // For allocate
+          from_wallet: {
+            type: "string",
+            description: "Source wallet ID (for allocate)",
+          },
+          to_wallet: {
+            type: "string",
+            description: "Destination wallet ID (for allocate)",
+          },
+          window_id: {
+            type: "string",
+            description: "Window ID (for allocate/coverage)",
+          },
+          wallet_id: {
+            type: "string",
+            description: "Wallet ID (for allocations/coverage)",
+          },
+          // Idempotency
+          request_hash: {
+            type: "string",
+            description: "Unique request hash for idempotency",
+          },
+        },
+        required: ["action"],
+      },
+    },
   ],
 }));
 
-// Handle tool calls
+// =============================================
+// TOOL HANDLERS
+// =============================================
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
     switch (name) {
-      case "verify_receipt": {
+      // ==================
+      // FREE: whoami (auto-register)
+      // ==================
+      case "whoami": {
+        const identity = await ensureIdentity();
+        // Also fetch profile if already registered
+        try {
+          const profile = await callKernel(`/v1/agent/${encodeURIComponent(identity.agent_id)}`, {}, 'GET');
+          return { content: [{ type: "text", text: JSON.stringify({ ...identity, profile }, null, 2) }] };
+        } catch {
+          return { content: [{ type: "text", text: JSON.stringify(identity, null, 2) }] };
+        }
+      }
+
+      // ==================
+      // FREE: verify
+      // ==================
+      case "verify": {
         const { type, payload } = args as { type: string; payload: any };
-        const result = await callKernel('/v1/verify', {
-          type: type.toLowerCase(),
-          payload,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
+
+        if (type === 'seal') {
+          const result = await callKernel('/v1/seal/verify', { seal: payload });
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        }
+
+        const result = await callKernel('/v1/verify', { type, payload });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
 
-      case "net_receipts": {
-        const { agent_id, receipts } = args as {
-          agent_id: string;
-          receipts: any[];
-        };
-        const result = await callKernel('/v1/net', {
-          agent_id,
-          receipts,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      // =====================
-      // RAIL-2 CREDIT HANDLERS
-      // =====================
-      case "open_credit_line": {
-        const { borrower_agent_id, lender_agent_id, limit_usd_micros, spread_bps, maturity_ts, collateral_ratio_min_bps, request_hash } = args as {
-          borrower_agent_id: string;
-          lender_agent_id: string;
-          limit_usd_micros: number;
-          spread_bps?: number;
-          maturity_ts?: number;
-          collateral_ratio_min_bps?: number;
-          request_hash: string;
-        };
-        const result = await callKernel('/v1/credit/line/open', {
-          borrower_agent_id,
-          lender_agent_id,
-          limit_usd_micros,
-          spread_bps: spread_bps || 200,
-          maturity_ts,
-          collateral_ratio_min_bps: collateral_ratio_min_bps || 15000,
-          request_hash,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "update_credit_line": {
-        const { credit_line_id, agent_id, limit_usd_micros, spread_bps, status, request_hash } = args as {
-          credit_line_id: string;
-          agent_id: string;
-          limit_usd_micros?: number;
-          spread_bps?: number;
-          status?: string;
-          request_hash: string;
-        };
-        const result = await callKernel('/v1/credit/line/update', {
-          credit_line_id,
-          agent_id,
-          limit_usd_micros,
-          spread_bps,
-          status,
-          request_hash,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "close_credit_line": {
-        const { credit_line_id, agent_id, request_hash } = args as {
-          credit_line_id: string;
-          agent_id: string;
-          request_hash: string;
-        };
-        const result = await callKernel('/v1/credit/line/close', {
-          credit_line_id,
-          agent_id,
-          request_hash,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "draw_credit": {
-        const { credit_line_id, borrower_agent_id, amount_usd_micros, request_hash } = args as {
-          credit_line_id: string;
-          borrower_agent_id: string;
-          amount_usd_micros: number;
-          request_hash: string;
-        };
-        const result = await callKernel('/v1/credit/draw', {
-          credit_line_id,
-          borrower_agent_id,
-          amount_usd_micros,
-          request_hash,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "repay_credit": {
-        const { credit_line_id, borrower_agent_id, principal_usd_micros, interest_usd_micros, fees_usd_micros, request_hash } = args as {
-          credit_line_id: string;
-          borrower_agent_id: string;
-          principal_usd_micros?: number;
-          interest_usd_micros?: number;
-          fees_usd_micros?: number;
-          request_hash: string;
-        };
-        const result = await callKernel('/v1/credit/repay', {
-          credit_line_id,
-          borrower_agent_id,
-          principal_usd_micros: principal_usd_micros || 0,
-          interest_usd_micros: interest_usd_micros || 0,
-          fees_usd_micros: fees_usd_micros || 0,
-          request_hash,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "accrue_interest": {
-        const { credit_line_id, agent_id, window_id, days_accrued, request_hash } = args as {
-          credit_line_id: string;
-          agent_id: string;
-          window_id: string;
-          days_accrued: number;
-          request_hash: string;
-        };
-        const result = await callKernel('/v1/credit/interest/accrue', {
-          credit_line_id,
-          agent_id,
-          window_id,
-          days_accrued,
-          request_hash,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "apply_fee": {
-        const { credit_line_id, agent_id, fee_type, amount_usd_micros, reason, request_hash } = args as {
-          credit_line_id: string;
-          agent_id: string;
-          fee_type: string;
-          amount_usd_micros: number;
-          reason: string;
-          request_hash: string;
-        };
-        const result = await callKernel('/v1/credit/fee/apply', {
-          credit_line_id,
-          agent_id,
-          fee_type,
-          amount_usd_micros,
-          reason,
-          request_hash,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "margin_call": {
-        const { credit_line_id, agent_id, action, margin_call_id, reason, required_usd_micros, due_ts, request_hash } = args as {
-          credit_line_id: string;
-          agent_id: string;
-          action: string;
-          margin_call_id?: string;
-          reason?: string;
-          required_usd_micros?: number;
-          due_ts?: number;
-          request_hash: string;
-        };
-        const result = await callKernel('/v1/credit/margin/call', {
-          credit_line_id,
-          agent_id,
-          action,
-          margin_call_id,
-          reason,
-          required_usd_micros,
-          due_ts,
-          request_hash,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "lock_collateral": {
-        const { credit_line_id, agent_id, asset_ref, asset_type, amount_usd_micros, request_hash } = args as {
-          credit_line_id: string;
-          agent_id: string;
-          asset_ref: string;
-          asset_type: string;
-          amount_usd_micros: number;
-          request_hash: string;
-        };
-        const result = await callKernel('/v1/credit/collateral/lock', {
-          credit_line_id,
-          agent_id,
-          asset_ref,
-          asset_type,
-          amount_usd_micros,
-          request_hash,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "unlock_collateral": {
-        const { collateral_lock_id, agent_id, request_hash } = args as {
-          collateral_lock_id: string;
-          agent_id: string;
-          request_hash: string;
-        };
-        const result = await callKernel('/v1/credit/collateral/unlock', {
-          collateral_lock_id,
-          agent_id,
-          request_hash,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "liquidate": {
-        const { credit_line_id, agent_id, margin_call_id, request_hash } = args as {
-          credit_line_id: string;
-          agent_id: string;
-          margin_call_id: string;
-          request_hash: string;
-        };
-        const result = await callKernel('/v1/credit/liquidate', {
-          credit_line_id,
-          agent_id,
-          margin_call_id,
-          request_hash,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "commit_future": {
-        const { agent_id, fc } = args as { agent_id: string; fc: any };
-        const result = await callKernel('/v1/fc/commit', {
-          agent_id,
-          fc,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "trigger_default": {
-        const { agent_id, reason } = args as {
-          agent_id: string;
-          reason: string;
-        };
-        const result = await callKernel('/v1/default/trigger', {
-          agent_id,
-          reason_code: reason,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
-      case "verify_seal": {
-        const { seal } = args as { seal: any };
-        const result = await callKernel('/v1/seal/verify', {
-          seal,
-        });
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-
+      // ==================
+      // FREE: emit_meter (LOCAL)
+      // ==================
       case "emit_meter": {
-        const { type, agent_id, provider, units, unit_price_usd_micros, metadata, submit } = args as {
+        const { type, agent_id, provider, units, unit_price_usd_micros, metadata } = args as {
           type: 'compute' | 'energy';
           agent_id: string;
           provider: string;
           units: number;
           unit_price_usd_micros: number;
           metadata?: any;
-          submit?: boolean;
         };
 
-        // Create meter receipt locally
         const timestamp_ms = Date.now();
         const receipt = {
           meter_version: '0.1',
@@ -958,97 +455,184 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           metadata: metadata || {},
         };
 
-        // Generate receipt hash (simplified - in production use proper crypto)
-        const receiptStr = JSON.stringify(receipt);
-        const hash = Buffer.from(receiptStr).toString('base64url').slice(0, 32);
-
-        const localResult = {
-          receipt_hash: hash,
-          receipt,
-          mode: 'local',
-          message: 'Receipt emitted locally. Use submit=true to index for netting, or call net_receipts when ready to settle.',
-        };
-
-        // If submit=true, send to kernel for indexing (FREE operation)
-        if (submit) {
-          try {
-            const indexResult = await callKernel('/v1/index/batch', {
-              agent_id,
-              receipts: [receipt],
-            });
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    ...localResult,
-                    mode: 'indexed',
-                    index_result: indexResult,
-                    message: 'Receipt indexed. Call net_receipts to settle and receive SIGNED IAN (PAID).',
-                  }, null, 2),
-                },
-              ],
-            };
-          } catch (error) {
-            // If indexing fails, still return local receipt
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: JSON.stringify({
-                    ...localResult,
-                    index_error: error instanceof Error ? error.message : 'Index failed',
-                  }, null, 2),
-                },
-              ],
-            };
-          }
-        }
+        const hash = Buffer.from(JSON.stringify(receipt)).toString('base64url').slice(0, 32);
 
         return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(localResult, null, 2),
-            },
-          ],
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              receipt_hash: hash,
+              receipt,
+              mode: 'local',
+              next_step: 'Call net tool with this receipt to get kernel-signed IAN (PAID)',
+            }, null, 2),
+          }],
         };
       }
 
-      case "get_balance_sheet": {
-        const { agent_id, as_of_epoch, include_pending } = args as {
-          agent_id: string;
-          as_of_epoch?: number;
-          include_pending?: boolean;
+      // ==================
+      // FREE: settle (auto-register if needed)
+      // ==================
+      case "settle": {
+        const { from_agent_id, to_agent_id, amount_usd_micros, description } = args as {
+          from_agent_id?: string;
+          to_agent_id: string;
+          amount_usd_micros: number;
+          description?: string;
         };
 
-        // This is a PAID operation - kernel will return 402 if no credit
-        const result = await callKernel('/v1/mbs', {
-          agent_id,
-          as_of_epoch,
-          include_pending: include_pending || false,
+        // Auto-fill from_agent_id with this agent's identity
+        const sender = from_agent_id || (await ensureIdentity()).agent_id;
+
+        const result = await callKernel('/v1/agent/settle', {
+          from_agent_id: sender, to_agent_id, amount_usd_micros, description
         });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
 
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
+      // ==================
+      // FREE: agent_profile
+      // ==================
+      case "agent_profile": {
+        const { agent_id } = args as { agent_id: string };
+        const result = await callKernel(`/v1/agent/${encodeURIComponent(agent_id)}`, {}, 'GET');
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      // ==================
+      // FREE: leaderboard
+      // ==================
+      case "leaderboard": {
+        const result = await callKernel('/v1/agents/leaderboard', {}, 'GET');
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      // ==================
+      // FREE: escrow (auto-register if needed)
+      // ==================
+      case "escrow": {
+        const { action, buyer_agent_id, seller_agent_id, amount_usd_micros, escrow_id,
+                released_by, disputed_by, reason, description } = args as {
+          action: 'create' | 'release' | 'dispute' | 'status';
+          buyer_agent_id?: string; seller_agent_id?: string; amount_usd_micros?: number;
+          escrow_id?: string; released_by?: string; disputed_by?: string;
+          reason?: string; description?: string;
         };
+
+        const myId = (await ensureIdentity()).agent_id;
+
+        switch (action) {
+          case 'create': {
+            const result = await callKernel('/v1/agent/escrow/create', {
+              buyer_agent_id: buyer_agent_id || myId,
+              seller_agent_id, amount_usd_micros, description
+            });
+            return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+          }
+          case 'release': {
+            const result = await callKernel('/v1/agent/escrow/release', {
+              escrow_id, released_by: released_by || myId
+            });
+            return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+          }
+          case 'dispute': {
+            const result = await callKernel('/v1/agent/escrow/dispute', {
+              escrow_id, disputed_by: disputed_by || myId, reason
+            });
+            return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+          }
+          case 'status': {
+            const result = await callKernel(`/v1/agent/escrow/${encodeURIComponent(escrow_id || '')}`, {}, 'GET');
+            return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+          }
+          default:
+            throw new McpError(ErrorCode.InvalidParams, `Unknown escrow action: ${action}`);
+        }
+      }
+
+      // ==================
+      // PAID: net
+      // ==================
+      case "net": {
+        const { agent_id, receipts } = args as { agent_id: string; receipts: any[] };
+        const result = await callKernel('/v1/net', { agent_id, receipts });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      // ==================
+      // PAID: report
+      // ==================
+      case "report": {
+        const { type, agent_id, period_start, period_end, format } = args as {
+          type: 'mbs' | 'alr';
+          agent_id: string;
+          period_start?: string;
+          period_end?: string;
+          format?: 'json' | 'csv';
+        };
+
+        if (type === 'mbs') {
+          const result = await callKernel('/v1/mbs', { agent_id });
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        }
+
+        if (type === 'alr') {
+          const result = await callKernel('/v1/alr/generate', {
+            agent_id,
+            period_start,
+            period_end,
+            format: format || 'json',
+          });
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        }
+
+        throw new McpError(ErrorCode.InvalidParams, `Unknown report type: ${type}`);
+      }
+
+      // ==================
+      // PAID: credit (includes allocations)
+      // ==================
+      case "credit": {
+        const {
+          action, agent_id, lender_agent_id, limit_usd_micros,
+          credit_line_id, amount_usd_micros, request_hash,
+          from_wallet, to_wallet, window_id, wallet_id
+        } = args as {
+          action: 'packs' | 'status' | 'open' | 'draw' | 'repay' | 'allocate' | 'allocations' | 'coverage';
+          agent_id?: string;
+          lender_agent_id?: string;
+          limit_usd_micros?: number;
+          credit_line_id?: string;
+          amount_usd_micros?: number;
+          request_hash?: string;
+          from_wallet?: string;
+          to_wallet?: string;
+          window_id?: string;
+          wallet_id?: string;
+        };
+
+        // Use unified /v1/credit endpoint for all actions
+        const result = await callKernel('/v1/credit', {
+          action,
+          agent_id: agent_id || wallet_id,
+          lender_agent_id,
+          limit_usd_micros,
+          credit_line_id,
+          amount_usd_micros,
+          request_hash,
+          from_wallet,
+          to_wallet,
+          window_id,
+          wallet_id,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
 
       default:
-        throw new McpError(
-          ErrorCode.MethodNotFound,
-          `Unknown tool: ${name}`
-        );
+        throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     }
   } catch (error) {
-    if (error instanceof McpError) {
-      throw error;
-    }
+    if (error instanceof McpError) throw error;
     throw new McpError(
       ErrorCode.InternalError,
       `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`
@@ -1056,17 +640,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 });
 
-// Start the server
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-
-  // Log to stderr so it doesn't interfere with MCP communication
-  console.error("Primordia Clearing MCP Server running on stdio");
-  console.error(`Kernel URL: ${KERNEL_URL}`);
+  console.error("Primordia MCP Server v0.3.0");
+  console.error(`Kernel: ${KERNEL_URL}`);
+  console.error("Tools: verify, emit_meter, settle, agent_profile, leaderboard, escrow (FREE) | net, report, credit (PAID)");
 }
 
 main().catch((error) => {
-  console.error("Fatal error in main():", error);
+  console.error("Fatal error:", error);
   process.exit(1);
 });

@@ -1,5 +1,5 @@
 {
-  "name": "@primordia/sdk",
+  "name": "@primordia1/sdk",
   "version": "0.1.0",
   "description": "Primordia Inter-Agent Settlement SDK",
   "main": "dist/index.js",

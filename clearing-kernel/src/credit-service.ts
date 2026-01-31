@@ -18,6 +18,8 @@ const FEES = {
   COLLATERAL_LOCK: 10_000_000, // $10
   COLLATERAL_UNLOCK: 10_000_000, // $10
   LIQUIDATION_BPS: 500,     // 5% of liquidated value
+  ALLOC_BPS: 10,            // 0.1% of allocation (10 bps)
+  ALLOC_MIN: 100_000,       // $0.10 minimum fee
 };
 
 export interface CreditLineParams {
@@ -92,6 +94,14 @@ export interface LiquidateParams {
   request_hash: string;
 }
 
+export interface AllocParams {
+  from_wallet: string;
+  to_wallet: string;
+  amount_usd_micros: number;
+  window_id?: string;
+  request_hash: string;
+}
+
 export class CreditService {
   private kernelPrivateKey: string;
   private kernelPublicKey: string;
@@ -126,6 +136,9 @@ export class CreditService {
         return FEES.COLLATERAL_UNLOCK;
       case 'liquidate':
         return Math.floor((amount || 0) * FEES.LIQUIDATION_BPS / 10000);
+      case 'allocate':
+        const bpsFee = Math.floor((amount || 0) * FEES.ALLOC_BPS / 10000);
+        return Math.max(bpsFee, FEES.ALLOC_MIN); // min $0.10
       default:
         return 0;
     }
@@ -874,6 +887,139 @@ export class CreditService {
       collateral_ratio_bps,
       status: line?.status || 'unknown',
       as_of_ts: Date.now()
+    };
+  }
+
+  // =========================================================================
+  // ALLOCATION: Budget allocation between wallets with BPS fee
+  // =========================================================================
+
+  async allocate(params: AllocParams): Promise<{ receipt: any; fee_charged: number; allocation_id: string }> {
+    // 1. Check idempotency
+    const existing = await this.checkIdempotency(params.request_hash);
+    if (existing) {
+      return { receipt: existing.receipt, fee_charged: 0, allocation_id: existing.allocation_id };
+    }
+
+    // 2. Calculate fee (10 bps with $0.10 minimum)
+    const fee = this.calculateFee('allocate', params.amount_usd_micros);
+
+    // 3. Check from_wallet has sufficient balance
+    const fromBalance = await db.getBalance(params.from_wallet);
+    const totalRequired = params.amount_usd_micros + fee;
+    if (fromBalance < totalRequired) {
+      throw new Error(`Insufficient balance: need ${totalRequired} micros, have ${fromBalance}`);
+    }
+
+    // 4. Deduct from source wallet (amount + fee)
+    await db.deductCredit(
+      params.from_wallet,
+      totalRequired,
+      'allocation',
+      `Allocate to ${params.to_wallet}: ${params.amount_usd_micros} + ${fee} fee`
+    );
+
+    // 5. Add to destination wallet (amount only, fee goes to Primordia)
+    await db.addCredit(
+      params.to_wallet,
+      params.amount_usd_micros,
+      'allocation_received',
+      `Allocation from ${params.from_wallet}`
+    );
+
+    // 6. Create ALLOC receipt
+    const receipt = {
+      receipt_version: '0.1',
+      receipt_type: 'ALLOC',
+      from_wallet: params.from_wallet,
+      to_wallet: params.to_wallet,
+      amount_usd_micros: params.amount_usd_micros,
+      fee_usd_micros: fee,
+      fee_bps: FEES.ALLOC_BPS,
+      window_id: params.window_id || null,
+      timestamp_ms: Date.now(),
+      request_hash: params.request_hash
+    };
+
+    const receiptHash = hash(canonicalizeBytes(receipt));
+    const signature = await this.signReceipt(receipt);
+    (receipt as any).kernel_signature = signature;
+    (receipt as any).receipt_hash = receiptHash;
+
+    // 7. Persist to allocations table
+    const allocResult = await db.query(
+      `INSERT INTO allocations (from_wallet, to_wallet, amount_usd_micros, fee_usd_micros, fee_bps, window_id, request_hash, receipt_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING allocation_id`,
+      [params.from_wallet, params.to_wallet, params.amount_usd_micros, fee, FEES.ALLOC_BPS, params.window_id, params.request_hash, receiptHash]
+    );
+
+    const allocation_id = allocResult.rows[0].allocation_id;
+
+    // 8. Emit ALLOC_FEE event (fee goes to Primordia revenue)
+    await db.addCredit(
+      'primordia:treasury',
+      fee,
+      'allocation_fee',
+      `Fee from allocation ${allocation_id}`
+    );
+
+    return { receipt, fee_charged: fee, allocation_id };
+  }
+
+  // Get allocations for a wallet (for reporting)
+  async getAllocations(wallet_id: string, window_id?: string): Promise<any[]> {
+    let query = `
+      SELECT * FROM allocations
+      WHERE from_wallet = $1 OR to_wallet = $1
+      ORDER BY created_at DESC
+    `;
+    const queryParams: any[] = [wallet_id];
+
+    if (window_id) {
+      query = `
+        SELECT * FROM allocations
+        WHERE (from_wallet = $1 OR to_wallet = $1) AND window_id = $2
+        ORDER BY created_at DESC
+      `;
+      queryParams.push(window_id);
+    }
+
+    const result = await db.query(query, queryParams);
+    return result.rows;
+  }
+
+  // Check allocation coverage for a wallet/window
+  async checkAllocationCoverage(wallet_id: string, window_id: string): Promise<{
+    has_coverage: boolean;
+    total_allocated: number;
+    total_spent: number;
+    coverage_gap: number;
+  }> {
+    // Get total allocated TO this wallet for this window
+    const allocTo = await db.query(
+      `SELECT COALESCE(SUM(amount_usd_micros), 0) as total FROM allocations WHERE to_wallet = $1 AND window_id = $2`,
+      [wallet_id, window_id]
+    );
+    const total_allocated = parseInt(allocTo.rows[0]?.total || '0');
+
+    // Get total spent (meters) for this wallet in this window
+    const meters = await db.query(
+      `SELECT COALESCE(SUM((payload_json->>'total_usd_micros')::bigint), 0) as total
+       FROM receipts
+       WHERE payload_json->>'agent_id' = $1
+       AND type = 'meter'`,
+      [wallet_id]
+    );
+    const total_spent = parseInt(meters.rows[0]?.total || '0');
+
+    const coverage_gap = total_spent - total_allocated;
+
+    return {
+      has_coverage: coverage_gap <= 0,
+      total_allocated,
+      total_spent,
+      coverage_gap: Math.max(0, coverage_gap)
     };
   }
 }
