@@ -1,0 +1,10 @@
+app = "kaledge-agent"
+primary_region = "cdg"
+
+[build]
+
+[env]
+  MOLTBOOK_API_KEY = "moltbook_sk_LKvpsfdkcWjjetMZ3Rqdp-Y2VvE6N-XZ"
+
+[processes]
+  agent = "node dist/agent.js"

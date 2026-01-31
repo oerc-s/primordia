@@ -1,0 +1,17 @@
+{
+  "name": "@primordia/distributor-agent",
+  "version": "0.1.0",
+  "description": "Autonomous distribution agent for Primordia",
+  "type": "module",
+  "main": "dist/agent.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/agent.js",
+    "start:live": "node dist/agent.js --live"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/node": "^20.10.0"
+  }
+}

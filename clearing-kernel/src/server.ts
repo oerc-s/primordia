@@ -46,6 +46,7 @@ const FREE_TIER_RATE_LIMIT = parseInt(process.env.FREE_TIER_RATE_LIMIT || '100',
 const FREE_TIER_WINDOW_MS = parseInt(process.env.FREE_TIER_WINDOW_MS || '60000', 10);
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'admin-key-change-me';
 const DEFAULT_RESOLVE_FEE_USD_MICROS = 25_000_000_000; // $25,000
+const FREE_MODE = process.env.FREE_MODE === 'true'; // Bypass credit checks — capture flux first
 
 // =====================
 // FORCING THRESHOLDS
@@ -110,6 +111,7 @@ const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
 // Credit Requirement Middleware
 const requireCredit = (minAmount: number = 0) => {
   return async (req: Request, res: Response, next: NextFunction) => {
+    if (FREE_MODE) return next(); // Free mode — all primitives open
     const agent_id = req.body.agent_id || req.body.org_id;
     if (!agent_id) {
       return res.status(400).json({ error: 'Missing agent_id' });
